@@ -94,9 +94,6 @@ int start() {
 	viSellStopTicket		= -1;
 	viBuyOrderTicket		= -1;
 	viSellOrderTicket		= -1;
-	Comment("MT4 EVENT TRADER BOT (v1.01): [GMT " + TimeToStr(TimeGMT()) + "] Executing ...");
-	
-	
 	//=========================================================
 	//FIND *OPENED* BUY/SELL PENDING ORDERS
 	//---------------------------------------------------------
@@ -134,6 +131,14 @@ int start() {
 	// The above 2 sections will ensure that each event will only be executed once.
 	// If orders are cancelled or closed for whatever reason, they will never be open again.
 	
+	string vsVerbose     =  vsDisplay + "[GMT " + TimeToStr(TimeGMT()) + "] Executing ..."
+									"\nActive BUYSTOP: " + viBuyStopTicket +
+									"  |  Active SELLSTOP: " + viSellStopTicket +
+									"" +
+									"\nActive BUY: " + viBuyOrderTicket +
+									"  |  Active SELL: " + viSellOrderTicket;
+	Comment(vsVerbose);
+
 	
 	//=========================================================
 	// HANDLES OCO (One-Cancels-the-Other)
@@ -169,9 +174,18 @@ int start() {
 					if( (OrderType() == OP_BUYSTOP) || (OrderType() == OP_SELLSTOP) )
 						if((TimeCurrent()-OrderOpenTime()) >= viDeleteStopOrderAfterInSec)
 							OrderDelete(OrderTicket());
+
 					if( (OrderType() == OP_BUY) || (OrderType() == OP_SELL) )
-						if((TimeCurrent()-OrderOpenTime()) >= viDeleteOpenOrderAfterInSec)
-							OrderDelete(OrderTicket());
+						if((TimeCurrent()-OrderOpenTime()) >= viDeleteOpenOrderAfterInSec) {
+							// For executed orders, need to close them
+							double closePrice = 0;
+							RefreshRates();
+							if(OrderType() == OP_BUY)
+								closePrice	= Bid;
+							if(OrderType() == OP_SELL)
+								closePrice	= Ask;
+							OrderClose(OrderTicket(), OrderLots(), closePrice, int(viMaxSlippageInPip*viPipsToPoint), clrWhite);
+						}
 				}
 	}
 
@@ -188,6 +202,7 @@ int start() {
 	}
 	// Place BuyStop if not exists; and no executed-Buy order
 	if( (viBuyStopTicket == -1) && (viBuyOrderTicket == -1)) {
+		RefreshRates();
 		viFixLots		= NormalizeDouble(viFixLots, 2);
 		double viPrice = NormalizeDouble(Ask + (viStopOrderLevelInPip*viPipsToPrice), Digits);
 		double viSL	 = viPrice - (viStopLossInPip*viPipsToPrice);
