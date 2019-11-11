@@ -16,14 +16,20 @@
 // NEWS IMPACT SELECTION
 //===================================================================
 extern string		vsEAComment							= "Telegram @JosephLee74";		//Ego trip
-extern datetime	vdTradeStartInGMT					= D'2019.5.14 06:00';			//When to trade (GMT)
-extern int			viStopOrderLevelInPip			= 5;					// StopOrder distance from ask/bid (pips)
-extern double		viFixLots							= 0.01;				// Lot size
-extern int			viStopLossInPip					= 20;					// StopLoss (pips)
-extern int			viTargetProfitInPip				= 100;				// TargetProfit (pips)
-extern int			viDeleteStopOrderAfterInSec	= 30;					// StopOrder TTL (sec)
-extern int			viDeleteOpenOrderAfterInSec	= 300;				// Executed Order TTL (sec)
-extern int			viMaxSlippageInPip				= 2;					// Max Slippage (pip)
+extern datetime	vdTradeStartInGMT					= D'2019.11.01 17:00';		//When to trade (GMT)
+extern int			viStopOrderLevelInPip			= 5;		// StopOrder distance from ask/bid (pips)
+extern double		viFixLots							= 0.01;	// Lot size
+extern int			viStopLossInPip					= 20;		// StopLoss (pips)
+extern int			viTargetProfitInPip				= 100;	// TargetProfit (pips)
+extern int			viDeleteStopOrderAfterInSec	= 30;		// StopOrder TTL (sec)
+extern int			viDeleteOpenOrderAfterInSec	= 300;	// Executed Order TTL (sec)
+extern int			viMaxSlippageInPip				= 2;		// Max Slippage (pip)
+
+extern int			viProfitToActivateBlockTrailInPip	= 15;			// Activate Block-Trailing after trade has Profit by x pips.
+extern int			viTrailShiftProfitBlockInPip			= 20;			// Shift SL when Profit jump every x pips.
+extern int			viTrailShiftOnProfitInPip				= 10;			// Move SL by x-pips when shifting.
+
+
 
 
 //-------------------------------------------------------------------
@@ -230,5 +236,57 @@ int start() {
 		if(viSellStopTicket == -1)
 			Print("Error executing SellStop [" + IntegerToString(GetLastError()) + "]." );
 	}
+
+
+
+	//===================================================================
+	//HANDLES BLOCK-TRAILING
+	//-------------------------------------------------------------------
+	// Do NOT execute (place new orders) if it is past the trading window.
+	for( int i=OrdersTotal()-1; i>=0; i-- ) {
+		if(OrderSelect( i, SELECT_BY_POS, MODE_TRADES ))
+			if( OrderSymbol() == Symbol() )
+				if( OrderMagicNumber() == viMagicId) {
+				
+					// Handles the EXECUTED BUY trades
+					if(OrderType() == OP_BUY) {
+						// Ensure that the current profit is > ProfitToActivateBlockTrailing
+						double viProfitInPips	= NormalizeDouble((Bid - OrderOpenPrice())/viPipsToPrice, 1);
+						if(viProfitInPips >= viProfitToActivateBlockTrailInPip) {
+							// Calculate the new SL price
+							int		viProfitBlocks	= (viProfitInPips-viProfitToActivateBlockTrailInPip) / viTrailShiftProfitBlockInPip;
+							int		viPipsToShift	= viProfitBlocks * viTrailShiftOnProfitInPip;
+							double	viNewSL			= NormalizeDouble((viPipsToShift * viPipsToPrice) + OrderOpenPrice() - (viStopLossInPip * viPipsToPrice), Digits);
+							int		viNewSLFromOpen	= (viNewSL - OrderOpenPrice())/viPipsToPrice;
+							if( (viNewSL > OrderStopLoss()) && (viNewSL < OrderTakeProfit()) ) {
+								Print("Shifting SL for Buy [" + OrderTicket() + "], from [" + OrderStopLoss() + "] to [" + viNewSL + "], [" + viNewSLFromOpen + "] pips from OpenPrice. Current profit [" + viProfitInPips + "] pips.");
+								if( !OrderModify( OrderTicket(), OrderOpenPrice(), viNewSL, OrderTakeProfit(), OrderExpiration()))
+									Print("Error shifting SL for Buy [" + OrderTicket() + "], from [" + OrderStopLoss() + "] to [" + viNewSL + "]. Current profit [" + viProfitInPips + "] pips.");
+							}
+						}
+					}
+					
+					// Handles the EXECUTED SELL trades
+					if(OrderType() == OP_SELL) {
+						// Ensure that the current profit is > ProfitToActivateBlockTrailing
+						double viProfitInPips	= NormalizeDouble((OrderOpenPrice() - Ask)/viPipsToPrice, 1);
+						if(viProfitInPips >= viProfitToActivateBlockTrailInPip) {
+							// Calculate the new SL price
+							int		viProfitBlocks	= (viProfitInPips-viProfitToActivateBlockTrailInPip) / viTrailShiftProfitBlockInPip;
+							int		viPipsToShift	= viProfitBlocks * viTrailShiftOnProfitInPip;
+							double	viNewSL			= NormalizeDouble(OrderOpenPrice() + (viStopLossInPip * viPipsToPrice) - (viPipsToShift * viPipsToPrice), Digits);
+							int		viNewSLFromOpen	= (OrderOpenPrice() - viNewSL)/viPipsToPrice;
+							if( (viNewSL < OrderStopLoss()) && (viNewSL > OrderTakeProfit()) ) {
+								Print("Shifting SL for Sell [" + OrderTicket() + "], from [" + OrderStopLoss() + "] to [" + viNewSL + "], [" + viNewSLFromOpen + "] pips from OpenPrice. Current profit [" + viProfitInPips + "] pips.");
+								if( !OrderModify( OrderTicket(), OrderOpenPrice(), viNewSL, OrderTakeProfit(), OrderExpiration()))
+									Print("Error shifting SL for Sell [" + OrderTicket() + "], from [" + OrderStopLoss() + "] to [" + viNewSL + "]. Current profit [" + viProfitInPips + "] pips.");
+							}
+						}
+					}
+				}
+	}
+	
+	
+	
 	return(0);
 }
